@@ -1,3 +1,4 @@
+```yaml
 name: OpenFlux Exit Node
 
 on:
@@ -9,39 +10,31 @@ permissions:
 jobs:
   openflux:
     runs-on: ubuntu-24.04
+
+    # GitHub-hosted job максимум около 6 часов.
     timeout-minutes: 350
 
     env:
       YANDEX_DOC_URL: ${{ secrets.YANDEX_DOC_URL }}
 
     steps:
-      - name: Validate secret
+      - name: Check Yandex URL secret
         shell: bash
         run: |
           set +x
 
           if [ -z "${YANDEX_DOC_URL:-}" ]; then
-            echo "ERROR: YANDEX_DOC_URL secret is missing."
+            echo "ERROR: Secret YANDEX_DOC_URL is not configured."
             exit 1
           fi
 
+          # Дополнительная маскировка секрета в GitHub Actions logs.
           echo "::add-mask::$YANDEX_DOC_URL"
-          echo "Yandex URL: configured"
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.26.3'
-          cache: false
+          echo "YANDEX_DOC_URL: configured"
+          echo "The URL itself will not be printed."
 
-      - name: Install dependencies
-        shell: bash
-        run: |
-          set +x
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq git iptables curl
-
-      - name: Download OpenFlux
+      - name: Checkout OpenFlux source
         shell: bash
         run: |
           set +x
@@ -50,32 +43,76 @@ jobs:
 
           cd OpenFlux
 
-          echo "OpenFlux revision:"
+          echo "OpenFlux commit:"
           git rev-parse --short HEAD
 
-          echo "Go:"
-          go version
+          echo "Required Go version:"
+          awk '$1 == "go" {print $2; exit}' go.mod
 
-      - name: Check runner networking
+      - name: Install base dependencies
         shell: bash
         run: |
           set +x
 
-          echo "Network check..."
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq git curl iptables
 
-          echo -n "IPv4 egress: "
-          curl -4 -fsS --max-time 10 https://api.ipify.org || true
-          echo
+      - name: Install required Go version
+        shell: bash
+        run: |
+          set +x
 
-          echo -n "IPv6 egress: "
-          curl -6 -fsS --max-time 10 https://api64.ipify.org || true
-          echo
+          cd OpenFlux
 
-          echo -n "Internet HTTPS: "
-          curl -4 -fsS --max-time 10 -o /dev/null \
-            -w "%{http_code}" \
-            https://example.com || true
-          echo
+          REQUIRED_GO="$(awk '$1 == "go" {print $2; exit}' go.mod)"
+
+          if [ -z "$REQUIRED_GO" ]; then
+            echo "ERROR: Could not determine Go version from go.mod"
+            exit 1
+          fi
+
+          echo "::add-mask::$REQUIRED_GO"
+          echo "OpenFlux requires Go >= ${REQUIRED_GO}"
+
+          # Go 1.26.4 is currently required by OpenFlux.
+          # setup-go gets the exact version from go.mod.
+          echo "REQUIRED_GO=$REQUIRED_GO" >> "$GITHUB_ENV"
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.REQUIRED_GO }}
+          cache: false
+
+      - name: Verify Go
+        shell: bash
+        run: |
+          set +x
+          echo "Installed Go:"
+          go version
+
+      - name: Check runner network
+        shell: bash
+        run: |
+          set +x
+
+          echo "Checking outbound IPv4..."
+          IPV4="$(curl -4 -fsS --max-time 10 https://api.ipify.org || true)"
+
+          if [ -n "$IPV4" ]; then
+            echo "IPv4 egress: $IPV4"
+          else
+            echo "IPv4 egress check failed"
+          fi
+
+          echo "Checking HTTPS connectivity..."
+          HTTP_CODE="$(curl -4 -fsS \
+            --max-time 10 \
+            -o /dev/null \
+            -w '%{http_code}' \
+            https://example.com || true)"
+
+          echo "HTTPS test: ${HTTP_CODE:-failed}"
 
       - name: Build OpenFlux
         shell: bash
@@ -84,28 +121,41 @@ jobs:
 
           cd OpenFlux
 
-          go mod tidy
+          echo "Downloading Go modules..."
+          go mod download
+
+          echo "Building OpenFlux..."
           go build -o universal-bypass-tool .
 
           chmod +x universal-bypass-tool
 
-          echo "Build OK"
+          echo "Build successful."
 
-      - name: Configure RST protection
+      - name: Configure iptables
         shell: bash
         run: |
           set +x
 
-          sudo iptables -C OUTPUT \
-            -p tcp \
-            --tcp-flags RST RST \
-            -j DROP 2>/dev/null || \
-          sudo iptables -A OUTPUT \
-            -p tcp \
-            --tcp-flags RST RST \
-            -j DROP
+          # Proxy mode does not require iptables.
+          # We keep the rule because the current OpenFlux supports raw mode
+          # and this makes the runner ready for the network test.
+          if sudo iptables -C OUTPUT \
+              -p tcp \
+              --tcp-flags RST RST \
+              -j DROP 2>/dev/null; then
 
-          echo "RST protection configured"
+            echo "RST DROP rule already exists."
+
+          else
+
+            sudo iptables -A OUTPUT \
+              -p tcp \
+              --tcp-flags RST RST \
+              -j DROP
+
+            echo "RST DROP rule added."
+
+          fi
 
       - name: Check raw socket capability
         shell: bash
@@ -125,22 +175,23 @@ jobs:
               print("RAW SOCKET: OK")
           except Exception as e:
               print("RAW SOCKET: FAILED")
-              print(type(e).__name__ + ": " + str(e))
+              print(f"{type(e).__name__}: {e}")
           PY
 
-      - name: Start OpenFlux
+      - name: Start OpenFlux exit node
         shell: bash
         run: |
           set +x
 
           cd OpenFlux
 
-          echo "Starting OpenFlux exit node..."
-          echo "Transport: Yandex"
+          echo "======================================"
+          echo "Starting OpenFlux"
           echo "Mode: proxy"
-          echo "Secret URL: hidden"
-          echo "Debug logging: disabled"
-          echo
+          echo "Transport: yandex"
+          echo "URL: configured (hidden)"
+          echo "Debug: disabled"
+          echo "======================================"
 
           exec sudo ./universal-bypass-tool \
             --exit-node \
