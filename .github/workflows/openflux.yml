@@ -9,109 +9,67 @@ permissions:
 jobs:
   openflux:
     runs-on: ubuntu-24.04
-
-    # GitHub-hosted job максимум около 6 часов.
     timeout-minutes: 350
 
     env:
       YANDEX_DOC_URL: ${{ secrets.YANDEX_DOC_URL }}
 
+      # Меньше накладных расходов на GC.
+      GOGC: "100"
+
+      # Не даём Go пытаться использовать слишком много CPU.
+      GOMAXPROCS: "2"
+
     steps:
-      - name: Check Yandex URL secret
+      - name: Checkout OpenFlux
         shell: bash
         run: |
           set +x
 
-          if [ -z "${YANDEX_DOC_URL:-}" ]; then
-            echo "ERROR: Secret YANDEX_DOC_URL is not configured."
-            exit 1
-          fi
-
-          # Дополнительная маскировка секрета в GitHub Actions logs.
-          echo "::add-mask::$YANDEX_DOC_URL"
-
-          echo "YANDEX_DOC_URL: configured"
-          echo "The URL itself will not be printed."
-
-      - name: Checkout OpenFlux source
-        shell: bash
-        run: |
-          set +x
-
-          git clone --depth 1 https://github.com/p1neappleXpress/OpenFlux.git
+          git clone --depth 1 --single-branch \
+            https://github.com/p1neappleXpress/OpenFlux.git
 
           cd OpenFlux
 
           echo "OpenFlux commit:"
           git rev-parse --short HEAD
 
-          echo "Required Go version:"
+          echo "Go requirement:"
           awk '$1 == "go" {print $2; exit}' go.mod
 
-      - name: Install base dependencies
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: OpenFlux/go.mod
+          cache: true
+
+      - name: Install dependencies
         shell: bash
         run: |
           set +x
 
           sudo apt-get update -qq
-          sudo apt-get install -y -qq git curl iptables
+          sudo apt-get install -y -qq iptables
 
-      - name: Install required Go version
+      - name: Verify environment
         shell: bash
         run: |
           set +x
 
           cd OpenFlux
 
-          REQUIRED_GO="$(awk '$1 == "go" {print $2; exit}' go.mod)"
-
-          if [ -z "$REQUIRED_GO" ]; then
-            echo "ERROR: Could not determine Go version from go.mod"
-            exit 1
-          fi
-
-          echo "::add-mask::$REQUIRED_GO"
-          echo "OpenFlux requires Go >= ${REQUIRED_GO}"
-
-          # Go 1.26.4 is currently required by OpenFlux.
-          # setup-go gets the exact version from go.mod.
-          echo "REQUIRED_GO=$REQUIRED_GO" >> "$GITHUB_ENV"
-
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.REQUIRED_GO }}
-          cache: false
-
-      - name: Verify Go
-        shell: bash
-        run: |
-          set +x
-          echo "Installed Go:"
+          echo "Go:"
           go version
 
-      - name: Check runner network
-        shell: bash
-        run: |
-          set +x
+          echo "CPU:"
+          nproc
 
-          echo "Checking outbound IPv4..."
-          IPV4="$(curl -4 -fsS --max-time 10 https://api.ipify.org || true)"
+          echo "Memory:"
+          free -h
 
-          if [ -n "$IPV4" ]; then
-            echo "IPv4 egress: $IPV4"
-          else
-            echo "IPv4 egress check failed"
-          fi
-
-          echo "Checking HTTPS connectivity..."
-          HTTP_CODE="$(curl -4 -fsS \
-            --max-time 10 \
-            -o /dev/null \
-            -w '%{http_code}' \
-            https://example.com || true)"
-
-          echo "HTTPS test: ${HTTP_CODE:-failed}"
+          echo "IPv4 egress:"
+          curl -4 -fsS --max-time 10 https://api.ipify.org || true
+          echo
 
       - name: Build OpenFlux
         shell: bash
@@ -120,43 +78,38 @@ jobs:
 
           cd OpenFlux
 
-          echo "Downloading Go modules..."
+          # Только скачиваем зависимости.
+          # go mod tidy здесь не нужен для запуска.
           go mod download
 
-          echo "Building OpenFlux..."
-          go build -o universal-bypass-tool .
+          go build \
+            -trimpath \
+            -ldflags="-s -w" \
+            -o universal-bypass-tool .
 
           chmod +x universal-bypass-tool
 
           echo "Build successful."
 
-      - name: Configure iptables
+      - name: Configure networking
         shell: bash
         run: |
           set +x
 
-          # Proxy mode does not require iptables.
-          # We keep the rule because the current OpenFlux supports raw mode
-          # and this makes the runner ready for the network test.
-          if sudo iptables -C OUTPUT \
-              -p tcp \
-              --tcp-flags RST RST \
-              -j DROP 2>/dev/null; then
+          # Текущая официальная инструкция OpenFlux
+          # использует этот RST DROP для exit node.
+          sudo iptables -C OUTPUT \
+            -p tcp \
+            --tcp-flags RST RST \
+            -j DROP 2>/dev/null || \
+          sudo iptables -A OUTPUT \
+            -p tcp \
+            --tcp-flags RST RST \
+            -j DROP
 
-            echo "RST DROP rule already exists."
+          echo "iptables configured."
 
-          else
-
-            sudo iptables -A OUTPUT \
-              -p tcp \
-              --tcp-flags RST RST \
-              -j DROP
-
-            echo "RST DROP rule added."
-
-          fi
-
-      - name: Check raw socket capability
+      - name: Check raw socket
         shell: bash
         run: |
           set +x
@@ -173,22 +126,28 @@ jobs:
               s.close()
               print("RAW SOCKET: OK")
           except Exception as e:
-              print("RAW SOCKET: FAILED")
-              print(f"{type(e).__name__}: {e}")
+              print(f"RAW SOCKET: FAILED: {e}")
           PY
 
-      - name: Start OpenFlux exit node
+      - name: Start OpenFlux
         shell: bash
         run: |
           set +x
 
           cd OpenFlux
 
+          if [ -z "${YANDEX_DOC_URL:-}" ]; then
+            echo "ERROR: YANDEX_DOC_URL is missing."
+            exit 1
+          fi
+
+          echo "::add-mask::$YANDEX_DOC_URL"
+
           echo "======================================"
-          echo "Starting OpenFlux"
-          echo "Mode: proxy"
+          echo "OpenFlux Exit Node"
           echo "Transport: yandex"
-          echo "URL: configured (hidden)"
+          echo "Mode: proxy"
+          echo "URL: hidden"
           echo "Debug: disabled"
           echo "======================================"
 
