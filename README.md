@@ -1,64 +1,77 @@
-# 🚀 OpenFlux GitHub Actions
+# 🚀 OpenFlux Exit Node — GitHub Actions
 
-> Бесплатный способ запустить **OpenFlux Exit Node** через GitHub Actions без отдельного VPS.
+Бесплатный способ запустить **OpenFlux Exit Node** через GitHub Actions без отдельного VPS.
 
-Этот репозиторий позволяет использовать GitHub-hosted runner в качестве временного Exit Node для приложения **OpenFlux** на iPhone.
+Подходит для использования с клиентами OpenFlux на **разных устройствах и платформах**, при условии что клиент поддерживает подключение к Exit Node.
 
-## ✨ Что это даёт
-
-* 🆓 Не нужен отдельный VPS
-* 💳 Не нужна банковская карта
-* 🐧 Используется Linux runner от GitHub
-* 📱 Можно подключить OpenFlux на iPhone
-* 🔐 Ссылка Yandex Docs хранится в GitHub Secrets
-* ⚡ Запуск выполняется одной кнопкой
-* 🛠 OpenFlux автоматически скачивается и собирается из официального репозитория
+> ✅ Работоспособность схемы проверена на **iOS / iPhone 12 Pro**.
 
 ---
 
-## 🧩 Как это работает
+## 💡 Что это такое
+
+Этот репозиторий содержит готовый GitHub Actions workflow, который автоматически:
+
+* запускает Ubuntu Linux runner;
+* загружает актуальный OpenFlux;
+* устанавливает необходимую версию Go;
+* собирает `universal-bypass-tool`;
+* настраивает `iptables`;
+* запускает OpenFlux в режиме **Exit Node**;
+* использует **Yandex Docs** как transport.
+
+Отдельный VPS для этого способа не нужен.
+
+---
+
+## 🔗 Схема
 
 ```text
-📱 iPhone
-    │
-    │ OpenFlux
-    ▼
-📝 Yandex Docs transport
-    │
-    ▼
-🐙 GitHub Actions
-    │
-    │ Ubuntu
-    ▼
-🚀 OpenFlux Exit Node
-    │
-    ▼
-🌐 Internet
+                 ┌──────────────────────┐
+                 │      OpenFlux        │
+                 │  Client / устройство │
+                 └──────────┬───────────┘
+                            │
+                            │ Yandex Docs
+                            ▼
+                 ┌──────────────────────┐
+                 │   GitHub Actions     │
+                 │    Ubuntu Runner     │
+                 └──────────┬───────────┘
+                            │
+                            ▼
+                 ┌──────────────────────┐
+                 │ OpenFlux Exit Node   │
+                 │      proxy mode      │
+                 └──────────┬───────────┘
+                            │
+                            ▼
+                         Internet
 ```
 
-GitHub Actions создаёт временную Linux-машину, на которой автоматически запускается OpenFlux.
+Клиентом может выступать любое поддерживаемое OpenFlux устройство.
 
 ---
 
-# 📋 Установка
+# ⚡ Быстрый старт
 
 ## 1. Сделайте Fork
 
-Сначала нажмите **Fork** в правом верхнем углу этого репозитория.
+Нажмите **Fork** в правом верхнем углу этого репозитория.
 
-После этого у вас появится **своя копия**:
+После этого у вас появится собственная копия:
 
 ```text
 https://github.com/ВАШ_АККАУНТ/moyopenflux
 ```
 
-> Не изменяйте оригинальный репозиторий. Работайте со своей копией через **Fork**.
+Работать нужно именно со своей копией.
 
 ---
 
 ## 2. Создайте Secret
 
-В своей копии репозитория откройте:
+В своей копии откройте:
 
 **Settings → Secrets and variables → Actions → New repository secret**
 
@@ -68,44 +81,31 @@ https://github.com/ВАШ_АККАУНТ/moyopenflux
 YANDEX_DOC_URL
 ```
 
-В значение вставьте **свою ссылку на Yandex Docs**, которую используете в OpenFlux.
+В значение вставьте свою ссылку на **Yandex Docs**, которую вы используете для OpenFlux.
 
-### 🔒 Важно
+### 🔐 Важно
 
-Не вставляйте ссылку напрямую в `openflux.yml`.
+Не вставляйте ссылку непосредственно в YAML.
 
-Правильно:
-
-```text
-GitHub Secrets
-    ↓
-YANDEX_DOC_URL
-    ↓
-OpenFlux
-```
-
-Неправильно:
+Она передаётся в workflow через GitHub Secrets:
 
 ```yaml
---url "https://..."
+${{ secrets.YANDEX_DOC_URL }}
 ```
 
-в исходном коде.
+И дополнительно маскируется в логах.
 
 ---
 
-# ▶️ Запуск
+## 3. Запустите workflow
 
-После создания Secret:
+Откройте:
 
-1. Откройте вкладку **Actions**.
-2. Выберите **OpenFlux Exit Node**.
-3. Нажмите **Run workflow**.
-4. Дождитесь запуска Exit Node.
-5. Откройте OpenFlux на iPhone.
-6. Запустите тест/туннель.
+**Actions → OpenFlux Exit Node → Run workflow**
 
-При успешном запуске в Actions появится примерно:
+После запуска GitHub автоматически подготовит сервер и запустит Exit Node.
+
+В конце в логах должно появиться примерно:
 
 ```text
 Starting OpenFlux
@@ -120,63 +120,29 @@ Exit mode: proxy
 Running as EXIT NODE (proxy mode)
 ```
 
-В приложении OpenFlux после подключения должно появиться:
-
-```text
-Test OK
-```
-
-После этого начинает идти передача данных.
+После этого можно подключать клиент OpenFlux.
 
 ---
 
-# 🔐 Безопасность
+# 🛠️ Что делает workflow
 
-`YANDEX_DOC_URL` используется как GitHub Secret и не должен находиться в открытом коде.
+### Загрузка OpenFlux
 
-Workflow дополнительно маскирует значение:
-
-```bash
-echo "::add-mask::$YANDEX_DOC_URL"
-```
-
-Также `--debug` не используется, чтобы не создавать лишний подробный вывод.
-
-### Никогда не публикуйте:
-
-* Yandex Docs URL;
-* содержимое GitHub Secrets;
-* личные токены;
-* приватные ключи.
-
----
-
-# ⚙️ Что происходит автоматически
-
-После запуска workflow:
-
-### 1. Загружается OpenFlux
-
-Используется официальный репозиторий:
-
-https://github.com/p1neappleXpress/OpenFlux
+Используется актуальная версия официального проекта:
 
 ```bash
-git clone --depth 1 https://github.com/p1neappleXpress/OpenFlux.git
+git clone --depth 1 \
+  https://github.com/p1neappleXpress/OpenFlux.git
 ```
 
-### 2. Устанавливается Go
-
-Версия Go соответствует требованиям текущего OpenFlux.
-
-### 3. Выполняется сборка
+### Сборка
 
 ```bash
 go mod tidy
 go build -o universal-bypass-tool .
 ```
 
-### 4. Настраивается `iptables`
+### Настройка `iptables`
 
 ```bash
 sudo iptables -A OUTPUT \
@@ -185,11 +151,7 @@ sudo iptables -A OUTPUT \
   -j DROP
 ```
 
-### 5. Проверяется raw socket
-
-Runner проверяется на возможность создания raw socket.
-
-### 6. Запускается Exit Node
+### Запуск Exit Node
 
 ```bash
 sudo ./universal-bypass-tool \
@@ -200,127 +162,144 @@ sudo ./universal-bypass-tool \
 
 ---
 
-# 📱 Использование
+# 📱 Проверка
 
-После запуска workflow просто включите туннель в приложении OpenFlux на iPhone.
+Схема была фактически проверена на:
 
-Схема подключения:
+* **iPhone 12 Pro**
+* iOS
+* Wi-Fi
+* мобильной сети 4G
+
+Результат:
 
 ```text
-iPhone
-  ↓
-OpenFlux
-  ↓
-Yandex Docs
-  ↓
-GitHub Actions
-  ↓
-OpenFlux Exit Node
-  ↓
-Internet
+Test OK
 ```
 
----
+После подключения через Exit Node передача данных работала, а доступ к ресурсам через туннель успешно осуществлялся.
 
-# ⚠️ Ограничения
-
-## GitHub Actions — не постоянный VPS
-
-Runner временный.
-
-Когда workflow заканчивается:
-
-* виртуальная машина уничтожается;
-* Exit Node прекращает работу;
-* IP может измениться;
-* туннель потребуется запустить заново.
-
-Поэтому этот способ подходит прежде всего для **временного использования и тестирования**.
-
-## Ограничение времени
-
-Один GitHub Actions job имеет ограниченное время выполнения.
-
-Если runner остановился, просто запустите workflow заново.
+> Проверка на iOS подтверждает работоспособность самой схемы Exit Node + Yandex transport. Другие устройства могут использовать тот же Exit Node, если соответствующий клиент OpenFlux поддерживает это подключение.
 
 ---
 
-# 🔄 Как запустить снова
+# 🔒 Безопасность
 
-Когда предыдущий runner завершился:
+`YANDEX_DOC_URL` не хранится в открытом виде в репозитории.
 
-**Actions → OpenFlux Exit Node → Run workflow**
-
-И снова включите OpenFlux на iPhone.
-
----
-
-# ❓ Частые проблемы
-
-### `Test Failed`
-
-Проверьте:
-
-* запущен ли workflow;
-* появился ли в логах `Running as EXIT NODE`;
-* правильно ли создан `YANDEX_DOC_URL`;
-* используется ли именно ваша ссылка Yandex Docs.
-
-### `YANDEX_DOC_URL is not configured`
-
-Secret не создан или называется неправильно.
-
-Имя должно быть строго:
+Workflow использует GitHub Secret:
 
 ```text
 YANDEX_DOC_URL
 ```
 
-### В логах нет URL
+и маскирует его:
 
-Это нормально.
+```bash
+echo "::add-mask::$YANDEX_DOC_URL"
+```
 
-URL специально скрывается из логов.
-
-### Runner работает, но Exit Node не подключается
-
-Убедитесь, что workflow дошёл до:
+Подробный режим:
 
 ```text
-Running as EXIT NODE (proxy mode)
+--debug
 ```
+
+намеренно не включён.
+
+### Никогда не публикуйте
+
+* Yandex Docs URL;
+* GitHub Secrets;
+* токены;
+* приватные ключи;
+* другие конфиденциальные данные.
 
 ---
 
-# ⭐ Благодарность
+# ⚠️ Ограничения
 
-Проект использует:
+GitHub Actions runner является **временной виртуальной машиной**, а не постоянным VPS.
 
-**OpenFlux**
+После завершения job:
+
+* Exit Node остановится;
+* виртуальная машина будет удалена;
+* IP-адрес может измениться;
+* workflow необходимо запустить снова.
+
+Поэтому данный способ лучше всего подходит для:
+
+* тестирования;
+* временного использования;
+* случаев, когда нет собственного VPS.
+
+---
+
+# 🆓 Почему GitHub Actions?
+
+Не требуется:
+
+* отдельный VPS;
+* банковская карта для VPS;
+* настройка Linux-сервера вручную;
+* установка OpenFlux на сервер вручную.
+
+Достаточно сделать Fork, добавить один Secret и запустить workflow.
+
+---
+
+# 📂 Структура репозитория
+
+```text
+moyopenflux/
+├── .github/
+│   └── workflows/
+│       └── openflux.yml
+└── README.md
+```
+
+OpenFlux не хранится внутри этого репозитория.
+
+При каждом запуске workflow получает его непосредственно из официального репозитория.
+
+---
+
+# 🔗 Полезные ссылки
+
+### OpenFlux
+
 https://github.com/p1neappleXpress/OpenFlux
 
-Оригинальный проект создан **p1neappleXpress**.
+### Этот репозиторий
 
-Этот репозиторий содержит удобную конфигурацию GitHub Actions для запуска OpenFlux без отдельного VPS.
+https://github.com/versh72/moyopenflux
 
 ---
 
-## 📌 Быстрый старт
+# ⭐ Credits
+
+Основано на проекте **OpenFlux** от [p1neappleXpress](https://github.com/p1neappleXpress).
+
+Этот репозиторий предоставляет готовый способ запуска OpenFlux Exit Node через GitHub Actions.
+
+---
+
+## 🚀 В двух словах
 
 ```text
-Fork репозитория
-      ↓
-Создать YANDEX_DOC_URL
-      ↓
-Settings → Secrets → Actions
-      ↓
+Fork
+  ↓
+YANDEX_DOC_URL → GitHub Secrets
+  ↓
 Actions
-      ↓
-OpenFlux Exit Node
-      ↓
+  ↓
 Run workflow
-      ↓
-Открыть OpenFlux на iPhone
-      ↓
-Test OK ✅
+  ↓
+OpenFlux Exit Node запускается
+  ↓
+Подключение клиента OpenFlux
+  ↓
+✅ Готово
 ```
+
