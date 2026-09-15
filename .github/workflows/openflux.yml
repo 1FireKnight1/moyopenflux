@@ -14,62 +14,50 @@ jobs:
     env:
       YANDEX_DOC_URL: ${{ secrets.YANDEX_DOC_URL }}
 
-      # Меньше накладных расходов на GC.
-      GOGC: "100"
-
-      # Не даём Go пытаться использовать слишком много CPU.
-      GOMAXPROCS: "2"
-
     steps:
-      - name: Checkout OpenFlux
+      - name: Check secret
         shell: bash
         run: |
           set +x
 
-          git clone --depth 1 --single-branch \
-            https://github.com/p1neappleXpress/OpenFlux.git
+          if [ -z "${YANDEX_DOC_URL:-}" ]; then
+            echo "ERROR: YANDEX_DOC_URL is not configured."
+            exit 1
+          fi
 
-          cd OpenFlux
-
-          echo "OpenFlux commit:"
-          git rev-parse --short HEAD
-
-          echo "Go requirement:"
-          awk '$1 == "go" {print $2; exit}' go.mod
-
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: OpenFlux/go.mod
-          cache: true
+          echo "::add-mask::$YANDEX_DOC_URL"
+          echo "YANDEX_DOC_URL: configured"
 
       - name: Install dependencies
         shell: bash
         run: |
           set +x
 
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq iptables
+          sudo apt-get update
+          sudo apt-get install -y git golang-go iptables
 
-      - name: Verify environment
+      - name: Download OpenFlux
         shell: bash
         run: |
           set +x
 
+          git clone --depth 1 https://github.com/p1neappleXpress/OpenFlux.git
           cd OpenFlux
 
-          echo "Go:"
+          echo "OpenFlux commit:"
+          git rev-parse --short HEAD
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.4'
+          cache: false
+
+      - name: Verify Go
+        shell: bash
+        run: |
+          set +x
           go version
-
-          echo "CPU:"
-          nproc
-
-          echo "Memory:"
-          free -h
-
-          echo "IPv4 egress:"
-          curl -4 -fsS --max-time 10 https://api.ipify.org || true
-          echo
 
       - name: Build OpenFlux
         shell: bash
@@ -78,26 +66,18 @@ jobs:
 
           cd OpenFlux
 
-          # Только скачиваем зависимости.
-          # go mod tidy здесь не нужен для запуска.
-          go mod download
-
-          go build \
-            -trimpath \
-            -ldflags="-s -w" \
-            -o universal-bypass-tool .
+          go mod tidy
+          go build -o universal-bypass-tool .
 
           chmod +x universal-bypass-tool
 
           echo "Build successful."
 
-      - name: Configure networking
+      - name: Configure iptables
         shell: bash
         run: |
           set +x
 
-          # Текущая официальная инструкция OpenFlux
-          # использует этот RST DROP для exit node.
           sudo iptables -C OUTPUT \
             -p tcp \
             --tcp-flags RST RST \
@@ -107,9 +87,9 @@ jobs:
             --tcp-flags RST RST \
             -j DROP
 
-          echo "iptables configured."
+          echo "RST DROP rule configured."
 
-      - name: Check raw socket
+      - name: Check raw sockets
         shell: bash
         run: |
           set +x
@@ -126,7 +106,7 @@ jobs:
               s.close()
               print("RAW SOCKET: OK")
           except Exception as e:
-              print(f"RAW SOCKET: FAILED: {e}")
+              print(f"RAW SOCKET: FAILED: {type(e).__name__}: {e}")
           PY
 
       - name: Start OpenFlux
@@ -136,18 +116,11 @@ jobs:
 
           cd OpenFlux
 
-          if [ -z "${YANDEX_DOC_URL:-}" ]; then
-            echo "ERROR: YANDEX_DOC_URL is missing."
-            exit 1
-          fi
-
-          echo "::add-mask::$YANDEX_DOC_URL"
-
           echo "======================================"
-          echo "OpenFlux Exit Node"
-          echo "Transport: yandex"
+          echo "Starting OpenFlux"
           echo "Mode: proxy"
-          echo "URL: hidden"
+          echo "Transport: yandex"
+          echo "URL: configured (hidden)"
           echo "Debug: disabled"
           echo "======================================"
 
