@@ -21,37 +21,77 @@ jobs:
           set +x
 
           if [ -z "${YANDEX_DOC_URL:-}" ]; then
-            echo "ERROR: YANDEX_DOC_URL is not configured."
+            echo "ERROR: YANDEX_DOC_URL secret is missing."
             exit 1
           fi
 
           echo "::add-mask::$YANDEX_DOC_URL"
-          echo "Yandex Docs URL: configured"
+          echo "Yandex URL: configured"
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.3'
+          cache: false
 
       - name: Install dependencies
         shell: bash
         run: |
           set +x
-          sudo apt-get update
-          sudo apt-get install -y git golang-go iptables
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq git iptables curl
 
       - name: Download OpenFlux
         shell: bash
         run: |
           set +x
+
           git clone --depth 1 https://github.com/p1neappleXpress/OpenFlux.git
+
           cd OpenFlux
+
+          echo "OpenFlux revision:"
+          git rev-parse --short HEAD
+
+          echo "Go:"
           go version
+
+      - name: Check runner networking
+        shell: bash
+        run: |
+          set +x
+
+          echo "Network check..."
+
+          echo -n "IPv4 egress: "
+          curl -4 -fsS --max-time 10 https://api.ipify.org || true
+          echo
+
+          echo -n "IPv6 egress: "
+          curl -6 -fsS --max-time 10 https://api64.ipify.org || true
+          echo
+
+          echo -n "Internet HTTPS: "
+          curl -4 -fsS --max-time 10 -o /dev/null \
+            -w "%{http_code}" \
+            https://example.com || true
+          echo
 
       - name: Build OpenFlux
         shell: bash
         run: |
           set +x
+
           cd OpenFlux
+
           go mod tidy
           go build -o universal-bypass-tool .
 
-      - name: Configure iptables
+          chmod +x universal-bypass-tool
+
+          echo "Build OK"
+
+      - name: Configure RST protection
         shell: bash
         run: |
           set +x
@@ -65,17 +105,44 @@ jobs:
             --tcp-flags RST RST \
             -j DROP
 
-          echo "iptables configured."
+          echo "RST protection configured"
+
+      - name: Check raw socket capability
+        shell: bash
+        run: |
+          set +x
+
+          sudo python3 - <<'PY'
+          import socket
+
+          try:
+              s = socket.socket(
+                  socket.AF_INET,
+                  socket.SOCK_RAW,
+                  socket.IPPROTO_TCP
+              )
+              s.close()
+              print("RAW SOCKET: OK")
+          except Exception as e:
+              print("RAW SOCKET: FAILED")
+              print(type(e).__name__ + ": " + str(e))
+          PY
 
       - name: Start OpenFlux
         shell: bash
         run: |
           set +x
+
           cd OpenFlux
 
-          echo "Starting OpenFlux..."
-          echo "Secret URL is hidden."
+          echo "Starting OpenFlux exit node..."
+          echo "Transport: Yandex"
+          echo "Mode: proxy"
+          echo "Secret URL: hidden"
+          echo "Debug logging: disabled"
+          echo
 
           exec sudo ./universal-bypass-tool \
             --exit-node \
+            --transport yandex \
             --url "$YANDEX_DOC_URL"
