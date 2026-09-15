@@ -1,0 +1,81 @@
+name: OpenFlux Exit Node
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  openflux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+
+    env:
+      YANDEX_DOC_URL: ${{ secrets.YANDEX_DOC_URL }}
+
+    steps:
+      - name: Validate secret
+        shell: bash
+        run: |
+          set +x
+
+          if [ -z "${YANDEX_DOC_URL:-}" ]; then
+            echo "ERROR: YANDEX_DOC_URL is not configured."
+            exit 1
+          fi
+
+          echo "::add-mask::$YANDEX_DOC_URL"
+          echo "Yandex Docs URL: configured"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set +x
+          sudo apt-get update
+          sudo apt-get install -y git golang-go iptables
+
+      - name: Download OpenFlux
+        shell: bash
+        run: |
+          set +x
+          git clone --depth 1 https://github.com/p1neappleXpress/OpenFlux.git
+          cd OpenFlux
+          go version
+
+      - name: Build OpenFlux
+        shell: bash
+        run: |
+          set +x
+          cd OpenFlux
+          go mod tidy
+          go build -o universal-bypass-tool .
+
+      - name: Configure iptables
+        shell: bash
+        run: |
+          set +x
+
+          sudo iptables -C OUTPUT \
+            -p tcp \
+            --tcp-flags RST RST \
+            -j DROP 2>/dev/null || \
+          sudo iptables -A OUTPUT \
+            -p tcp \
+            --tcp-flags RST RST \
+            -j DROP
+
+          echo "iptables configured."
+
+      - name: Start OpenFlux
+        shell: bash
+        run: |
+          set +x
+          cd OpenFlux
+
+          echo "Starting OpenFlux..."
+          echo "Secret URL is hidden."
+
+          exec sudo ./universal-bypass-tool \
+            --exit-node \
+            --url "$YANDEX_DOC_URL"
