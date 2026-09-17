@@ -82,6 +82,10 @@ https://github.com/ВАШ_АККАУНТ/moyopenflux
 | **Yandex Docs** | OpenFlux Exit Node (Yandex) | `YANDEX_DOC_URL` |
 | **Mail.ru Docs** | OpenFlux Exit Node (Mail.ru) | `MAILRU_DOC_URL` |
 
+> ℹ️ Transport `mailru` поддерживается CLI-клиентами OpenFlux (macOS / Linux / Windows).
+> iOS-клиент пока умеет только `yandex` и `oneme`.
+> Android-клиент пока умеет только `yandex`, `vyandex` и `oneme` (без `mailru`).
+
 В значение вставьте свою ссылку на нужный документ (Yandex Docs или Mail.ru Docs), которую вы используете для OpenFlux.
 
 ### 🔐 Важно
@@ -125,11 +129,14 @@ Debug: disabled
 Role: exit
 Transport: yandex
 Exit mode: l4
-Codec: batched (zstd + coalescing)
+Codec: legacy (per-packet LZ4, no batching)
 Running as EXIT NODE (mode=l4)
 ```
 
 > Для Mail.ru в логах транспорт покажется как `mailru`: `Transport: mailru`.
+>
+> 🔑 Важно: клиенты должны говорить с Exit Node на одинаковом кодеке. iOS-клиент
+> использует legacy LZ4, поэтому Exit Node запускается с `--codec=legacy`.
 
 После этого можно подключать клиент OpenFlux.
 
@@ -170,10 +177,12 @@ sudo iptables -A OUTPUT \
 sudo ./universal-bypass-tool \
   --role=exit \
   --mode=l4 \
+  --codec=legacy \
   --transport "$TRANSPORT" \
   --url "$DOC_URL"
 ```
 
+* `codec=legacy` — обязателен для совместимости с iOS-клиентом (legacy LZ4);
 * `TRANSPORT` — `yandex` или `mailru`;
 * `DOC_URL` — берётся из соответствующего GitHub Secret (`YANDEX_DOC_URL` / `MAILRU_DOC_URL`).
 
@@ -197,6 +206,28 @@ Test OK
 После подключения через Exit Node передача данных работала, а доступ к ресурсам через туннель успешно осуществлялся.
 
 > Проверка на iOS подтверждает работоспособность самой схемы Exit Node + Yandex transport. Другие устройства могут использовать тот же Exit Node, если соответствующий клиент OpenFlux поддерживает это подключение.
+
+---
+
+## 🤖 Android
+
+Клиент OpenFlux для Android (`OpenFluxAndroid`) подключается к Exit Node как `--client`.
+
+**Транспорт:** приложение умеет только `yandex`, `vyandex` и `oneme` (без `mailru`),
+поэтому на Android используйте workflow **OpenFlux Exit Node (Yandex)**.
+
+**Кодек:** Exit Node запускается с `--codec=legacy`, и транспорт в приложении
+должен использовать тот же кодек:
+
+* если в приложение встроен OpenFlux, собранный **до появления batched-кодека**
+  (до 14.09.2026), он использует legacy по умолчанию и работает сразу;
+* если `.so` пересобран из нового OpenFlux, по умолчанию будет `batched` — тогда
+  приложению нужно передавать `--codec=legacy` в транспорт (payload строится в
+  `AddTunFragment.kt`).
+
+**Как проверить:** в логах приложения виден stdout транспорта (он всегда
+запускается с `--debug`). Если транспорт и Exit Node на одинаковом кодеке,
+туннель проходит тест соединения.
 
 ---
 

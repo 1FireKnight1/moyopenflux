@@ -128,5 +128,6 @@ jobs:
           exec sudo ./universal-bypass-tool \
             --role=exit \
             --mode=l4 \
+            --codec=legacy \
             --transport "$TRANSPORT" \
             --url "$DOC_URL"
