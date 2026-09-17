@@ -130,4 +130,5 @@ jobs:
             --mode=l4 \
             --codec=legacy \
             --transport "$TRANSPORT" \
-            --url "$DOC_URL"
+            --url "$DOC_URL" \
+            --debug
