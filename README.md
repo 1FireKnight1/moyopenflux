@@ -18,7 +18,7 @@
 * собирает `universal-bypass-tool`;
 * настраивает `iptables`;
 * запускает OpenFlux в режиме **Exit Node**;
-* использует **Yandex Docs** как transport.
+* поддерживает выбор транспорта: **Yandex Docs** или **Mail.ru Docs**.
 
 Отдельный VPS для этого способа не нужен.
 
@@ -75,13 +75,14 @@ https://github.com/ВАШ_АККАУНТ/moyopenflux
 
 **Settings → Secrets and variables → Actions → New repository secret**
 
-Создайте секрет:
+Создайте секрет(ы) для нужного транспорта:
 
-```text
-YANDEX_DOC_URL
-```
+| Транспорт | Workflow | Secret |
+|---|---|---|
+| **Yandex Docs** | OpenFlux Exit Node (Yandex) | `YANDEX_DOC_URL` |
+| **Mail.ru Docs** | OpenFlux Exit Node (Mail.ru) | `MAILRU_DOC_URL` |
 
-В значение вставьте свою ссылку на **Yandex Docs**, которую вы используете для OpenFlux.
+В значение вставьте свою ссылку на нужный документ (Yandex Docs или Mail.ru Docs), которую вы используете для OpenFlux.
 
 ### 🔐 Важно
 
@@ -91,6 +92,7 @@ YANDEX_DOC_URL
 
 ```yaml
 ${{ secrets.YANDEX_DOC_URL }}
+${{ secrets.MAILRU_DOC_URL }}
 ```
 
 И дополнительно маскируется в логах.
@@ -101,7 +103,12 @@ ${{ secrets.YANDEX_DOC_URL }}
 
 Откройте:
 
-**Actions → OpenFlux Exit Node → Run workflow**
+**Actions** → выберите workflow по нужному транспорту:
+
+* **OpenFlux Exit Node (Yandex)** — transport `yandex`, секрет `YANDEX_DOC_URL`;
+* **OpenFlux Exit Node (Mail.ru)** — transport `mailru`, секрет `MAILRU_DOC_URL`.
+
+Затем нажмите **Run workflow**.
 
 После запуска GitHub автоматически подготовит сервер и запустит Exit Node.
 
@@ -109,16 +116,20 @@ ${{ secrets.YANDEX_DOC_URL }}
 
 ```text
 Starting OpenFlux
-Mode: proxy
+Mode: l4 (proxy)
 Transport: yandex
 URL: configured (hidden)
 Debug: disabled
 
-Mode: EXIT NODE
+=== Universal Bypass Tool ===
+Role: exit
 Transport: yandex
-Exit mode: proxy
-Running as EXIT NODE (proxy mode)
+Exit mode: l4
+Codec: batched (zstd + coalescing)
+Running as EXIT NODE (mode=l4)
 ```
+
+> Для Mail.ru в логах транспорт покажется как `mailru`: `Transport: mailru`.
 
 После этого можно подключать клиент OpenFlux.
 
@@ -153,12 +164,18 @@ sudo iptables -A OUTPUT \
 
 ### Запуск Exit Node
 
+Транспорт и ссылка на документ передаются параметрами:
+
 ```bash
 sudo ./universal-bypass-tool \
-  --exit-node \
-  --transport yandex \
-  --url "$YANDEX_DOC_URL"
+  --role=exit \
+  --mode=l4 \
+  --transport "$TRANSPORT" \
+  --url "$DOC_URL"
 ```
+
+* `TRANSPORT` — `yandex` или `mailru`;
+* `DOC_URL` — берётся из соответствующего GitHub Secret (`YANDEX_DOC_URL` / `MAILRU_DOC_URL`).
 
 ---
 
@@ -185,18 +202,19 @@ Test OK
 
 # 🔒 Безопасность
 
-`YANDEX_DOC_URL` не хранится в открытом виде в репозитории.
+`YANDEX_DOC_URL` и `MAILRU_DOC_URL` не хранятся в открытом виде в репозитории.
 
-Workflow использует GitHub Secret:
+Workflow использует GitHub Secrets:
 
 ```text
 YANDEX_DOC_URL
+MAILRU_DOC_URL
 ```
 
-и маскирует его:
+Значение подставляется только через `env` и маскируется перед записью в логи:
 
 ```bash
-echo "::add-mask::$YANDEX_DOC_URL"
+echo "::add-mask::$DOC_URL"
 ```
 
 Подробный режим:
@@ -210,6 +228,7 @@ echo "::add-mask::$YANDEX_DOC_URL"
 ### Никогда не публикуйте
 
 * Yandex Docs URL;
+* Mail.ru Docs URL;
 * GitHub Secrets;
 * токены;
 * приватные ключи;
@@ -255,7 +274,8 @@ GitHub Actions runner является **временной виртуально
 moyopenflux/
 ├── .github/
 │   └── workflows/
-│       └── openflux.yml
+│       ├── openflux.yml          (Yandex Docs)
+│       └── openflux-mailru.yml   (Mail.ru Docs)
 └── README.md
 ```
 
@@ -290,11 +310,11 @@ https://github.com/versh72/moyopenflux
 ```text
 Fork
   ↓
-YANDEX_DOC_URL → GitHub Secrets
+Секрет транспорта → GitHub Secrets
   ↓
 Actions
   ↓
-Run workflow
+Run workflow (Yandex или Mail.ru)
   ↓
 OpenFlux Exit Node запускается
   ↓

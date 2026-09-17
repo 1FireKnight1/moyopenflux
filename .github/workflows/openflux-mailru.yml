@@ -1,4 +1,4 @@
-name: OpenFlux Exit Node (Yandex)
+name: OpenFlux Exit Node (Mail.ru)
 
 on:
   workflow_dispatch:
@@ -12,8 +12,8 @@ jobs:
     timeout-minutes: 350
 
     env:
-      TRANSPORT: yandex
-      DOC_URL: ${{ secrets.YANDEX_DOC_URL }}
+      TRANSPORT: mailru
+      DOC_URL: ${{ secrets.MAILRU_DOC_URL }}
 
     steps:
       - name: Check secret
